@@ -77,21 +77,77 @@ async def make_oracle_request(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 # Health check endpoint
+# MINOR IMPROVEMENT: Health Check Endpoint
+# Your current health check is good, but here's a more robust version:
+
 @app.get("/health")
 async def health_check():
     """Check proxy and Oracle connectivity"""
     try:
         response = requests.get(ORACLE_URL, timeout=10)
         oracle_status = "connected" if response.status_code == 200 else "error"
-    except:
+    except Exception as e:
+        logger.error(f"Oracle health check failed: {str(e)}")
         oracle_status = "disconnected"
+    
+    # IMPROVEMENT: More reliable timestamp without external dependency
+    try:
+        # Try to get Saudi time from external API
+        time_response = requests.get("http://worldtimeapi.org/api/timezone/Asia/Riyadh", timeout=5)
+        if time_response.status_code == 200:
+            timestamp = time_response.json()["datetime"]
+        else:
+            raise Exception("External time API failed")
+    except Exception:
+        # FALLBACK: Use server UTC time if external API fails
+        from datetime import datetime
+        timestamp = datetime.utcnow().isoformat() + "Z"
     
     return {
         "status": "healthy",
         "oracle_connection": oracle_status,
-        "timestamp": requests.get("http://worldtimeapi.org/api/timezone/Asia/Riyadh").json()["datetime"]
+        "timestamp": timestamp,
+        "version": "1.0.0",
+        "region": "Asia/Riyadh"  # Add region info
     }
 
+# ALTERNATIVE: Even simpler and more reliable version
+@app.get("/health")
+async def health_check():
+    """Check proxy and Oracle connectivity"""
+    try:
+        response = requests.get(ORACLE_URL, timeout=10)
+        oracle_status = "connected" if response.status_code == 200 else "error"
+    except Exception as e:
+        logger.error(f"Oracle health check failed: {str(e)}")
+        oracle_status = "disconnected"
+    
+    # Simple server timestamp (no external dependency)
+    from datetime import datetime
+    import pytz
+    
+    try:
+        # Server time in Saudi timezone
+        saudi_tz = pytz.timezone('Asia/Riyadh')
+        timestamp = datetime.now(saudi_tz).isoformat()
+    except:
+        # Fallback to UTC if timezone fails
+        timestamp = datetime.utcnow().isoformat() + "Z"
+    
+    return {
+        "status": "healthy",
+        "oracle_connection": oracle_status,
+        "timestamp": timestamp,
+        "service": "Oracle Integration Proxy",
+        "version": "1.0.0"
+    }
+
+# WHY THIS IMPROVEMENT:
+# - Removes dependency on external worldtimeapi.org service
+# - More reliable (won't fail if external service is down)
+# - Faster response (no external HTTP call)
+# - Still provides timestamp information
+# - Better for production deployment reliability
 # READ: Get all records
 @app.get("/oracle/table1_11/")
 async def read_data():
